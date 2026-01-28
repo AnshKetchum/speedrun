@@ -3,15 +3,7 @@ import statistics
 import collections
 import os
 import gc
-import shelve
-
-import transformers
-from dataclasses import asdict
-import statistics
-import collections
-import os
-import gc
-import shelve
+import json
 
 import transformers
 import torch
@@ -328,26 +320,32 @@ class MergeTrainer(transformers.Trainer):
         bootstrap_iters = self.all_args["eval_args"].harness_benchmark_bootstrap_iters
 
         self.model.eval()
-        self.teacher_model.eval()
         gc.collect()
         torch.cuda.empty_cache()
 
-        with shelve.open(self.benchmarks_shelf) as db:
-            if "teacher" not in db:
-                # db["teacher"] = distily.metrics.run_benchmarks(
-                #     self.teacher_model, self.tokenizer, benchmarks, limit, bootstrap_iters
-                # )
-                db["teacher"] = run_benchmarks(
-                    self.teacher_model, self.tokenizer, benchmarks, limit, bootstrap_iters
-                )
-            # student_metrics = distily.metrics.run_benchmarks(
-            #     self.model, self.tokenizer, benchmarks, limit, bootstrap_iters
-            # )
-            student_metrics = run_benchmarks(
-                self.model, self.tokenizer, benchmarks, limit, bootstrap_iters
-            )
-            db[self.args.run_name] = student_metrics
-            print(student_metrics)
+        # Load existing benchmarks if file exists
+        benchmarks_file = self.benchmarks_json
+        db = {}
+        if os.path.exists(benchmarks_file):
+            try:
+                with open(benchmarks_file, 'r') as f:
+                    db = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                db = {}
+        
+        # Run student benchmarks only
+        student_metrics = run_benchmarks(
+            self.model, self.tokenizer, benchmarks, limit, bootstrap_iters
+        )
+        db[self.args.run_name] = self._serialize_metrics(student_metrics)
+        
+        # Save to JSON (only from rank 0 to avoid conflicts)
+        local_rank = getattr(self.args, 'local_rank', -1)
+        if local_rank in [-1, 0]:
+            with open(benchmarks_file, 'w') as f:
+                json.dump(db, f, indent=2)
+        
+        print(student_metrics)
 
         return student_metrics
     
@@ -363,14 +361,83 @@ class MergeTrainer(transformers.Trainer):
         gc.collect()
         torch.cuda.empty_cache()
 
-        with shelve.open(self.benchmarks_shelf) as db:
-            student_metrics = run_benchmarks(
-                self.model, self.tokenizer, benchmarks, limit, bootstrap_iters
-            )
-            #  db[self.args.run_name] = student_metrics
+        # Load existing benchmarks if file exists
+        benchmarks_file = self.benchmarks_json
+        db = {}
+        if os.path.exists(benchmarks_file):
+            try:
+                with open(benchmarks_file, 'r') as f:
+                    db = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                db = {}
+        
+        # Run student benchmarks
+        student_metrics = run_benchmarks(
+            self.model, self.tokenizer, benchmarks, limit, bootstrap_iters
+        )
+        # Include step number in key to preserve evaluations at different steps
+        eval_key = f"{self.args.run_name}_step{self.state.global_step}"
+        db[eval_key] = self._serialize_metrics(student_metrics)
+        
+        # Save to JSON (only from rank 0 to avoid conflicts)
+        local_rank = getattr(self.args, 'local_rank', -1)
+        if local_rank in [-1, 0]:
+            with open(benchmarks_file, 'w') as f:
+                json.dump(db, f, indent=2)
         self.model.train()
         return student_metrics
 
     @property
-    def benchmarks_shelf(self):
-        return os.path.join(self.args.output_dir, "benchmarks.shelve")
+    def benchmarks_json(self):
+        return os.path.join(self.args.output_dir, "benchmarks.json")
+    
+    def _serialize_metrics(self, metrics):
+        """Convert metrics to JSON-serializable format, keeping only summary results."""
+        if metrics is None:
+            return None
+        
+        # Extract only the results/summary, skip task configurations
+        if isinstance(metrics, dict):
+            # If there's a "results" key, use that (contains summary metrics)
+            if "results" in metrics:
+                return self._serialize_metrics(metrics["results"])
+            
+            # Otherwise, filter out configuration keys and keep only metric values
+            serialized = {}
+            skip_keys = {
+                "description", "target_delimiter", "fewshot_delimiter", 
+                "fewshot_config", "num_fewshot", "metric_list", "config",
+                "task_name", "task_info", "dataset_path", "output_type"
+            }
+            
+            for key, value in metrics.items():
+                # Skip configuration keys
+                if key in skip_keys:
+                    continue
+                
+                # Keep metric values (typically numeric)
+                if isinstance(value, dict):
+                    # Recursively process nested dicts
+                    nested = self._serialize_metrics(value)
+                    if nested:  # Only add if not empty
+                        serialized[key] = nested
+                elif isinstance(value, (int, float, str, bool, type(None))):
+                    serialized[key] = value
+                elif hasattr(value, 'item'):  # torch.Tensor or numpy scalar
+                    serialized[key] = float(value.item())
+                elif isinstance(value, (list, tuple)):
+                    # Only keep lists of simple values, not config lists
+                    if len(value) > 0 and not isinstance(value[0], dict):
+                        serialized[key] = [
+                            float(v.item()) if hasattr(v, 'item') else v 
+                            for v in value
+                        ]
+            return serialized
+        
+        # For non-dict values, convert to serializable format
+        if isinstance(metrics, (int, float, str, bool, type(None))):
+            return metrics
+        elif hasattr(metrics, 'item'):
+            return float(metrics.item())
+        else:
+            return str(metrics)

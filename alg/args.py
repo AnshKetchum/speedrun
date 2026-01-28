@@ -47,7 +47,7 @@ class EvalArguments:
     full_grad_similarity_stats: bool = False  # expensive
 
     harness_benchmarks: typing.List[typing.Dict] = field(
-        default_factory= lambda: ["mmlu"],
+        default_factory= lambda: ["mmlu", "arc_challenge", "arc_easy"],
         # official model release recommendation:
         # include lambda: ["wikitext", "boolq", "hellaswag", "glue", "ai2_arc", "mmlu", "math"]
         metadata={"help": "Benchmarks to compare student and teacher models at end of training."}
@@ -97,9 +97,9 @@ class TrainingArguments(TrainingArguments):
     logging_steps: int = 2
     save_strategy: str = "steps"
     save_steps: int = 4000
-    save_total_limit = 4
-    eval_strategy: str = "no"
-    eval_steps: int = 2000
+    save_total_limit = 14
+    eval_strategy: str = "steps"
+    eval_steps: int = 1000
     eval_on_start: bool = False
     eval_on_end: bool = False
     report_to: str = "wandb"

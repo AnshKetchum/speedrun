@@ -86,7 +86,24 @@ def run_benchmarks(model, tokenizer, benchmarks, limit=None, bootstrap_iters=Non
     """
     logging.debug(f"Running benchmarks: {benchmarks}")
     import lm_eval
-    lm_eval_model = lm_eval.models.huggingface.HFLM(
+    
+    try:
+        from lm_eval.models.huggingface import HFLM
+    except (ImportError, AttributeError):
+        try:
+            import lm_eval.models
+            from lm_eval.models.huggingface import HFLM
+        except (ImportError, AttributeError):
+            try:
+                from lm_eval.api.model import HFLM
+            except (ImportError, AttributeError):
+                raise ImportError(
+                    "Could not import HFLM from lm_eval. "
+                    "Please ensure lm-evaluation-harness is installed correctly. "
+                    "Try: pip install lm-eval[all]"
+                )
+    
+    lm_eval_model = HFLM(
         pretrained=model,
         tokenizer=tokenizer,
         trust_remote_code=True,
