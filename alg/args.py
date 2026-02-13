@@ -8,10 +8,10 @@ num_gpus = torch.cuda.device_count()
 
 # main training args; optimizer args + etc needed for overriding trainer defaults + logging
 bs = 3
-optimizer_name = "cadamw"
-learning_rate = 1e-4
+optimizer_name = "cadamw" #"MuonWithAuxAdam"
+learning_rate = 5e-3
 w_decay = 0.01
-lr_aux_adam = 1e-4
+lr_aux_adam = 5e-3
 decay_aux_adam = 0.01
 name = f"qwen3-2b/{optimizer_name}/bs{bs}/{num_gpus}h100s/distil"
 
@@ -97,9 +97,9 @@ class TrainingArguments(TrainingArguments):
     logging_steps: int = 2
     save_strategy: str = "steps"
     save_steps: int = 4000
-    save_total_limit = 14
+    save_total_limit = 16
     eval_strategy: str = "steps"
-    eval_steps: int = 1000
+    eval_steps: int = 2000
     eval_on_start: bool = False
     eval_on_end: bool = False
     report_to: str = "wandb"
