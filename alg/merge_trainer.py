@@ -4,6 +4,7 @@ import collections
 import os
 import gc
 import json
+import time
 
 import transformers
 import torch
@@ -133,11 +134,22 @@ class MergeTrainer(transformers.Trainer):
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
         """
         opt_model = self.model
-        fw_params = [p for p in opt_model.model.layers.parameters() if p.ndim >= 2]
-        non_proj = [p for p in opt_model.model.layers.parameters() if p.ndim < 2]
-        non_proj.extend(opt_model.lm_head.parameters())
-        non_proj.extend(opt_model.model.embed_tokens.parameters())
-        
+
+        if isinstance(opt_model, UniversalTransformerForCausalLM):
+            ut = opt_model.ut
+            fw_params = [p for p in ut.blocks.parameters() if p.ndim >= 2]
+            non_proj = (
+                [p for p in ut.blocks.parameters() if p.ndim < 2]
+                + list(ut.embedding.parameters())
+                + list(ut.loop_gate.parameters())
+                + list(ut.head.parameters())
+            )
+        else:
+            fw_params = [p for p in opt_model.model.layers.parameters() if p.ndim >= 2]
+            non_proj = [p for p in opt_model.model.layers.parameters() if p.ndim < 2]
+            non_proj.extend(opt_model.lm_head.parameters())
+            non_proj.extend(opt_model.model.embed_tokens.parameters())
+
         if optimizer_name == "MuonWithAuxAdam":
             optimizer = MuonWithAuxAdam([
                     dict(params=fw_params, use_muon=True,
@@ -153,7 +165,7 @@ class MergeTrainer(transformers.Trainer):
                 ], lr=learning_rate, weight_decay=w_decay)
         else:
             raise ValueError
-        
+
         self.optimizer = optimizer
         return self.optimizer
 
@@ -186,6 +198,7 @@ class MergeTrainer(transformers.Trainer):
             loss_mb = transformers.trainer.smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
             return loss_mb.reduce_mean().detach().to(self.args.device)
 
+        _t0 = time.perf_counter()
         with self.compute_loss_context_manager():
             loss, stats = self.compute_loss(model, inputs, return_stats=True)
 
@@ -222,6 +235,7 @@ class MergeTrainer(transformers.Trainer):
         else:
             self.accelerator.backward(loss, **kwargs)
 
+        stats["iter_time"] = time.perf_counter() - _t0
         self._extra_stats.append(stats)
 
         ##############

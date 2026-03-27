@@ -38,6 +38,21 @@ class ModelArguments:
             "aliases": ["--k"]
         }
     )
+    model_type: str = field(
+        default="hf",
+        metadata={"help": "Model type: 'hf' for HuggingFace models, 'universal_transformer' for UT from scratch."}
+    )
+    # Universal Transformer hyperparameters
+    ut_tokenizer: str = field(default="gpt2", metadata={"help": "Tokenizer to use for vocabulary when training a UT."})
+    ut_vocab_size: typing.Optional[int] = field(default=None, metadata={"help": "Vocab size override for UT. Defaults to tokenizer vocab size."})
+    ut_d_model: int = field(default=256, metadata={"help": "Hidden dimension for Universal Transformer."})
+    ut_n_heads: int = field(default=4, metadata={"help": "Number of attention heads for Universal Transformer."})
+    ut_d_ff: int = field(default=512, metadata={"help": "Feedforward inner dimension for Universal Transformer."})
+    ut_max_steps: int = field(default=8, metadata={"help": "Maximum recurrent steps (ACT cap) for Universal Transformer."})
+    ut_n_blocks: int = field(default=1, metadata={"help": "Number of shared TransformerBlocks in Universal Transformer."})
+    ut_eps: float = field(default=0.01, metadata={"help": "ACT halting threshold for Universal Transformer."})
+    ut_tau: float = field(default=0.01, metadata={"help": "ACT ponder loss coefficient for Universal Transformer."})
+    ut_dropout: float = field(default=0.1, metadata={"help": "Dropout probability for Universal Transformer."})
 
 
 @dataclass

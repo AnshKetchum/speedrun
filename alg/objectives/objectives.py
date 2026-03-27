@@ -73,8 +73,8 @@ class Objective(nn.Module):
     def loss(self, model, inputs):
         forward_kwargs = {
             **inputs,
-            "output_hidden_states": False, 
-            "output_attentions": False, 
+            "output_hidden_states": False,
+            "output_attentions": False,
         }
         out = model(**forward_kwargs)
 
@@ -83,6 +83,9 @@ class Objective(nn.Module):
         logits = logits.view(logits.shape[0]*logits.shape[1], logits.shape[2])
         CE = self.cross_entropy(logits, labels)
 
+        act_loss = getattr(out, "act_loss", None)
+        if act_loss is not None:
+            return {"loss": CE + act_loss, "crossentropy": CE, "act_loss": act_loss}
         return {"loss": CE, "crossentropy": CE}
     def distil_loss(self, model, inputs):
         forward_kwargs = {

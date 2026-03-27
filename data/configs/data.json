@@ -1,21 +1,13 @@
 {
     "tmp_root": "./tmp/",
     "concat_tokens": 4096,
-    "tokenizer": "kaizen9/test2b12",
-    "bos_text": "<|end_of_text|>",
+    "tokenizer": "gpt2",
+    "bos_text": "<|endoftext|>",
     "eos_text": "",
     "no_wrap": false,
     "batch_size": 512,
     "datasets": [
-      { "path": "zjsd/RedStone", "limit": 0.51, "num_valid_samples": 8},
-      { "path": "Query-of-CC/Knowledge_Pile", "limit": 0.22, "num_valid_samples": 8},
-      { "path": "common-pile/library_of_congress_filtered", "limit": 0.05, "num_valid_samples": 8},
-      { "path": "semran1/cot-arxiv-high-sample", "limit": 0.045, "num_valid_samples": 8},
-      { "path": "common-pile/peS2o_filtered", "limit": 0.045, "num_valid_samples": 8},
-      { "path": "common-pile/stackv2_edu_filtered", "limit": 0.05, "num_valid_samples": 8},
-      { "path": "vikhyatk/dolmino-mix-1124-flan", "limit": 0.03, "num_valid_samples": 8},
-      { "path": "zjsd/RedStone-QA-mcq", "limit": 0.03, "num_valid_samples": 8},
-      { "path": "semran1/cot-wiki-high-sample", "limit": 0.02, "num_valid_samples": 8}
+      { "path": "common-pile/stackv2_edu_filtered", "limit": 0.05, "num_valid_samples": 8}
     ],
     "num_split": 1,
     "out_root": "./test_dataset/"

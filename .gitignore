@@ -1,0 +1,8 @@
+*.pyc
+*.log
+*.json
+*.zst
+*.wandb
+checkpoints
+wandb
+test_dataset

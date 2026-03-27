@@ -96,6 +96,9 @@ def train(training_args, model_args, eval_args):
     trainer = MergeTrainer.from_args(
         training_args, model_args, eval_args
     )
+    total = sum(p.numel() for p in trainer.model.parameters())
+    trainable = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+    print(f"Model parameters: {total:,} total, {trainable:,} trainable")
     if training_args.resume:
         trainer_results = trainer.train(resume_from_checkpoint=True)
     else:
