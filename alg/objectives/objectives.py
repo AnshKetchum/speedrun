@@ -85,7 +85,13 @@ class Objective(nn.Module):
 
         act_loss = getattr(out, "act_loss", None)
         if act_loss is not None:
-            return {"loss": CE + act_loss, "crossentropy": CE, "act_loss": act_loss}
+            return {
+                "loss": CE + act_loss,
+                "crossentropy": CE,
+                "act_loss": act_loss,
+                "avg_loops": out.avg_loops,
+                "avg_remainder": out.avg_remainder,
+            }
         return {"loss": CE, "crossentropy": CE}
     def distil_loss(self, model, inputs):
         forward_kwargs = {

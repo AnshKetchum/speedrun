@@ -141,7 +141,7 @@ class MergeTrainer(transformers.Trainer):
             non_proj = (
                 [p for p in ut.blocks.parameters() if p.ndim < 2]
                 + list(ut.embedding.parameters())
-                + list(ut.loop_gate.parameters())
+                + list(ut.loop_gates.parameters())
                 + list(ut.head.parameters())
             )
         else:

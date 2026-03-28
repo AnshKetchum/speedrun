@@ -80,9 +80,10 @@ class UniversalTransformer(nn.Module):
         self.tau       = tau
 
         self.embedding  = nn.Embedding(vocab_size, d_model)
-        self.blocks      = nn.ModuleList([TransformerBlock(d_model, n_heads, d_ff, dropout) for i in range(n_blocks)])
-        self.loop_gate  = nn.Linear(d_model, 1)
-        nn.init.constant_(self.loop_gate.bias, 1.0)
+        self.blocks     = nn.ModuleList([TransformerBlock(d_model, n_heads, d_ff, dropout) for i in range(n_blocks)])
+        self.loop_gates = nn.ModuleList([nn.Linear(d_model, 1) for _ in range(n_blocks)])
+        for gate in self.loop_gates:
+            nn.init.constant_(gate.bias, 1.0)
         self.head       = nn.Linear(d_model, vocab_size)
 
     def forward(self, x: torch.Tensor):
@@ -104,12 +105,17 @@ class UniversalTransformer(nn.Module):
         
         if self.max_steps > 1:
 
-            for block in self.blocks:
+            for block, gate in zip(self.blocks, self.loop_gates):
+                halting_prob  = x.new_zeros(B, T, dtype=torch.float)
+                remainders    = x.new_zeros(B, T, dtype=torch.float)
+                n_updates     = x.new_zeros(B, T, dtype=torch.float)
+                still_running = x.new_ones(B, T, dtype=torch.bool)
+
                 for step in range(self.max_steps):
                     o = o + step_encoding(step, T, self.d_model, device)
                     o = block(o, mask=causal_mask)
 
-                    p = torch.sigmoid(self.loop_gate(o).squeeze(-1))
+                    p = torch.sigmoid(gate(o).squeeze(-1))
 
                     new_halted = (
                         still_running
@@ -158,13 +164,17 @@ class UniversalTransformer(nn.Module):
         # finally compute logits
         logits = self.head(final_state)
 
-        return logits, {"n_updates": n_updates, "remainders": remainders, "act_loss": act_loss}
+        avg_loops = n_updates.mean()
+        avg_remainder = remainders.mean()
+        return logits, {"n_updates": n_updates, "remainders": remainders, "act_loss": act_loss, "avg_loops": avg_loops, "avg_remainder": avg_remainder}
 
 
 @dataclass
 class UTCausalLMOutput(ModelOutput):
     logits: Optional[torch.Tensor] = None
     act_loss: Optional[torch.Tensor] = None
+    avg_loops: Optional[torch.Tensor] = None
+    avg_remainder: Optional[torch.Tensor] = None
 
 
 class UniversalTransformerConfig(PretrainedConfig):
@@ -224,7 +234,7 @@ class UniversalTransformerForCausalLM(PreTrainedModel):
 
     def forward(self, input_ids, **kwargs):
         logits, aux = self.ut(input_ids)
-        return UTCausalLMOutput(logits=logits, act_loss=aux["act_loss"])
+        return UTCausalLMOutput(logits=logits, act_loss=aux["act_loss"], avg_loops=aux["avg_loops"], avg_remainder=aux["avg_remainder"])
 
 
 # ---------------------------------------------------------------------------
