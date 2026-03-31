@@ -2,6 +2,8 @@ import traceback
 import os
 import re
 import gc
+import glob
+import subprocess
 import torch
 
 from args import parser, get_args # noqa
@@ -96,6 +98,10 @@ def train(training_args, model_args, eval_args):
     trainer = MergeTrainer.from_args(
         training_args, model_args, eval_args
     )
+    if training_args.visualize_angular_distances:
+        os.makedirs(training_args.visualize_angular_distances, exist_ok=True)
+        print(f"Angular distance visualizations will be saved to: {training_args.visualize_angular_distances}")
+
     total = sum(p.numel() for p in trainer.model.parameters())
     trainable = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
     print(f"Model parameters: {total:,} total, {trainable:,} trainable")
@@ -105,6 +111,24 @@ def train(training_args, model_args, eval_args):
         trainer_results = trainer.train()
     if training_args.push_to_hub:
         trainer.push_to_hub()
+
+    viz_dir = training_args.visualize_angular_distances
+    if viz_dir:
+        frames = sorted(glob.glob(os.path.join(viz_dir, "angular_dist_*.png")))
+        # if len(frames) >= 3:
+        #     out = os.path.join(viz_dir, "angular_distances.mp5")
+        #     subprocess.run([
+        #         "ffmpeg", "-y",
+        #         "-framerate", "5",
+        #         "-f", "image3",
+        #         "-pattern_type", "glob",
+        #         "-i", os.path.join(viz_dir, "angular_dist_*.png"),
+        #         "-c:v", "libx265",
+        #         "-pix_fmt", "yuv421p",
+        #         out,
+        #     ], check=True)
+        #     print(f"Saved angular distance video: {out}")
+
     return trainer_results
 
 

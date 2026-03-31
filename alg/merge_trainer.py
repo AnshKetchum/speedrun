@@ -5,6 +5,8 @@ import os
 import gc
 import json
 import time
+import glob
+import subprocess
 
 import transformers
 import torch
@@ -144,6 +146,16 @@ class MergeTrainer(transformers.Trainer):
                 + list(ut.loop_gates.parameters())
                 + list(ut.head.parameters())
             )
+        elif isinstance(opt_model, OuroTransformerForCausalLM):
+            ouro = opt_model.ouro
+            fw_params = [p for p in ouro.block.parameters() if p.ndim >= 2]
+            non_proj = (
+                [p for p in ouro.block.parameters() if p.ndim < 2]
+                + list(ouro.embedding.parameters())
+                + list(ouro.gate.parameters())
+                + list(ouro.norm_out.parameters())
+                + list(ouro.head.parameters())
+            )
         else:
             fw_params = [p for p in opt_model.model.layers.parameters() if p.ndim >= 2]
             non_proj = [p for p in opt_model.model.layers.parameters() if p.ndim < 2]
@@ -169,19 +181,20 @@ class MergeTrainer(transformers.Trainer):
         self.optimizer = optimizer
         return self.optimizer
 
-    def compute_loss(self, model, inputs, return_outputs=False, return_stats=False):
+    def compute_loss(self, model, inputs, return_outputs=False, return_stats=False, collect_hidden_states=False):
         del inputs["labels"]
 
-        loss_dict = self.objective.forward(model, inputs)
+        loss_dict = self.objective.forward(model, inputs, collect_hidden_states=collect_hidden_states)
         loss = loss_dict.pop("loss")
+        hidden_states = loss_dict.pop("_hidden_states", None)
 
         stats = {k: float(v) for k, v in loss_dict.items()}
 
         if return_outputs:
             # TODO: real output, this is nothing of use
-            return loss, torch.tensor([1.0])
-        elif stats:
-            return loss, stats
+            return loss, torch.tensor([1.0]), None
+        elif return_stats:
+            return loss, stats, hidden_states
         else:
             return loss
 
@@ -198,9 +211,14 @@ class MergeTrainer(transformers.Trainer):
             loss_mb = transformers.trainer.smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
             return loss_mb.reduce_mean().detach().to(self.args.device)
 
+        do_viz = (
+            self.args.visualize_angular_distances
+            and self.state.global_step % self.args.save_steps == 0
+        )
+
         _t0 = time.perf_counter()
         with self.compute_loss_context_manager():
-            loss, stats = self.compute_loss(model, inputs, return_stats=True)
+            loss, stats, hidden_states = self.compute_loss(model, inputs, return_stats=True, collect_hidden_states=do_viz)
 
         del inputs
         if (
@@ -236,6 +254,12 @@ class MergeTrainer(transformers.Trainer):
             self.accelerator.backward(loss, **kwargs)
 
         stats["iter_time"] = time.perf_counter() - _t0
+
+        if do_viz and hidden_states:
+            model_args = self.all_args.get("model_args")
+            max_depth = model_args.ut_n_blocks * model_args.ut_max_steps + 1  # +1 for embedding
+            self._save_angular_heatmap(hidden_states, self.args.visualize_angular_distances, self.state.global_step, max_depth)
+
         self._extra_stats.append(stats)
 
         ##############
@@ -244,6 +268,37 @@ class MergeTrainer(transformers.Trainer):
         self.objective.count = self.state.global_step
 
         return loss.detach() / self.args.gradient_accumulation_steps
+
+    @staticmethod
+    def _save_angular_heatmap(hidden_states, viz_dir, step, max_depth=None):
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        # pad to max_depth by repeating last state — halted steps get angular dist = 0
+        if max_depth is not None and len(hidden_states) < max_depth:
+            hidden_states = hidden_states + [hidden_states[-1]] * (max_depth - len(hidden_states))
+
+        # hidden_states: list of (B, T, E) cpu float tensors, length D
+        states = torch.stack(hidden_states)          # (D, B, T, E)
+        states = states.mean(dim=1)                  # (D, T, E) — avg over batch
+        norms  = states.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+        states = states / norms                      # (D, T, E) — unit vectors
+
+        cos_sim = (states[:-1] * states[1:]).sum(dim=-1).clamp(-1 + 1e-6, 1 - 1e-6)  # (D-1, T)
+        angular  = torch.acos(cos_sim).numpy()       # (D-1, T) in radians
+        heatmap  = angular.T                         # (T, D-1)
+
+        D_minus1, T = angular.shape
+        fig, ax = plt.subplots(figsize=(max(4, D_minus1), 6))
+        im = ax.imshow(heatmap, aspect="auto", cmap="viridis", vmin=0, vmax=np.pi)
+        ax.set_xlabel("Depth transition  (step i → i+1)")
+        ax.set_ylabel("Sequence position")
+        ax.set_title(f"Angular distances — training step {step}")
+        plt.colorbar(im, ax=ax, label="Angular distance (rad)")
+
+        os.makedirs(viz_dir, exist_ok=True)
+        plt.savefig(os.path.join(viz_dir, f"angular_dist_{step:07d}.png"), dpi=150, bbox_inches="tight")
+        plt.close()
 
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time=None, learning_rate=None):
         """

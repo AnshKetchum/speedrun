@@ -1,0 +1,16 @@
+1. how do we quantify state refinement through each loop?
+
+
+Order of questions to answer to build up to this: 
+
+- What is the tradeoff between looping 1 block N times, looping N blocks 1 times, and in between? 
+    - mainly look at loss + benchmarks (which benchmarks?)
+    - overlay loss curves, and overlay the loops / block vs some eval
+
+- Can we look at histograms of the percent differences between states to see HOW much refinement is
+happening in general? Ideally, we'd expect the histograms to have no tail and changes to be more fine grained as we progress through. 
+
+- Read 3 papers: 
+    - Universal Transformer, corroborate whats being done so far
+    - 1 blog in general on looping model training dynamics to expect
+    - 1 blog on how people are thinking about looping models, and why? why or why not would I think this makes sense? 

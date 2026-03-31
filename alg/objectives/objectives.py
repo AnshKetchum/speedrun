@@ -65,18 +65,38 @@ class Objective(nn.Module):
                     attn_implementation="flash_attention_2"
                     )
 
-    def forward(self, model, inputs) -> Dict[str, float]:
+    def forward(self, model, inputs, collect_hidden_states=False) -> Dict[str, float]:
         if self.distil:
             return self.distil_loss(model, inputs)
-        return self.loss(model, inputs) 
+        return self.loss(model, inputs, collect_hidden_states=collect_hidden_states)
 
-    def loss(self, model, inputs):
+    def loss(self, model, inputs, collect_hidden_states=False):
+        # Unwrap DDP if needed to detect model type
+        unwrapped = model.module if hasattr(model, 'module') else model
+
         forward_kwargs = {
             **inputs,
             "output_hidden_states": False,
             "output_attentions": False,
+            "collect_hidden_states": collect_hidden_states,
         }
+
+        # Ouro model: pass labels so it computes the full ELBO internally
+        if getattr(unwrapped, 'is_ouro', False):
+            forward_kwargs['labels'] = inputs['input_ids']
+
         out = model(**forward_kwargs)
+
+        # --- Ouro path: ELBO = expected CE − β · H(p) ---
+        ouro_loss = getattr(out, "ouro_loss", None)
+        if ouro_loss is not None:
+            return {
+                "loss":           ouro_loss,
+                "crossentropy":   ouro_loss.detach(),   # approximate; includes entropy term
+                "avg_loops":      out.avg_loops,
+                "entropy":        out.entropy,
+                "_hidden_states": out.hidden_states,
+            }
 
         labels = inputs['input_ids'][:, 1:].contiguous().view(-1)
         logits = out.logits[:,:-1,:].contiguous()
@@ -91,6 +111,7 @@ class Objective(nn.Module):
                 "act_loss": act_loss,
                 "avg_loops": out.avg_loops,
                 "avg_remainder": out.avg_remainder,
+                "_hidden_states": out.hidden_states,
             }
         return {"loss": CE, "crossentropy": CE}
     def distil_loss(self, model, inputs):

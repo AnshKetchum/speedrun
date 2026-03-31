@@ -6,3 +6,5 @@
 checkpoints
 wandb
 test_dataset
+viz
+layer-experiments

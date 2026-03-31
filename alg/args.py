@@ -53,6 +53,7 @@ class ModelArguments:
     ut_eps: float = field(default=0.01, metadata={"help": "ACT halting threshold for Universal Transformer."})
     ut_tau: float = field(default=0.01, metadata={"help": "ACT ponder loss coefficient for Universal Transformer."})
     ut_dropout: float = field(default=0.1, metadata={"help": "Dropout probability for Universal Transformer."})
+    ut_beta: float = field(default=0.01, metadata={"help": "Entropy regularization coefficient β for Ouro ELBO loss."})
 
 
 @dataclass
@@ -93,6 +94,7 @@ class TrainingArguments(TrainingArguments):
     distil: bool = True
     distmodel: str = "RedMod/speedrun_model"
     save_only_model: bool = True
+    visualize_angular_distances: str = field(default="", metadata={"help": "Directory for angular distance heatmaps + mp4. Empty disables."})
     # DDP thing
     ddp_find_unused_parameters: bool = False #True
     # larger batches appear to train better?
